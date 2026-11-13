@@ -21,6 +21,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Generate DearTG app icon
+        working-directory: DearTG-iOS
+        run: swift generate-icon.swift
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
