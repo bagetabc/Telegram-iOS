@@ -29,6 +29,8 @@ jobs:
       - name: Generate Xcode project
         working-directory: DearTG-iOS
         run: xcodegen generate
+      - name: Report selected Xcode version
+        run: xcodebuild -version
       - name: Build iOS Simulator app
         working-directory: DearTG-iOS
         run: |
