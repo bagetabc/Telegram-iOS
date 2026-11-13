@@ -31,7 +31,9 @@ jobs:
           cache-dependency-path: deartg-server/requirements.txt
       - run: python -m pip install -r requirements.txt
       - name: Compile Python sources
-        run: python -m compileall -q app.py
+        run: python -m compileall -q app.py tests
+      - name: Run API integration tests
+        run: pytest -q
       - name: Verify API imports and route registration
         run: |
           python - <<'PY'
