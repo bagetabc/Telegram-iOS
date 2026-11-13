@@ -240,6 +240,44 @@ def me(user_id: int = __import__("fastapi").Depends(current_user)):
     return dict(row)
 
 
+
+@app.get("/v1/admin/users")
+def admin_list_users(limit: int = 50, offset: int = 0,
+                     _: None = __import__("fastapi").Depends(require_admin)):
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    with db() as conn:
+        rows = conn.execute("""SELECT u.id,u.username,u.created_at,
+            COALESCE((SELECT SUM(w.amount) FROM wallet_ledger w
+              WHERE w.user_id=u.id AND w.asset_code='DEARTG_STARS'),0) stars
+            FROM users u ORDER BY u.id DESC LIMIT ? OFFSET ?""",
+            (limit, offset)).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/v1/admin/users/{user_id}/assets")
+def admin_user_assets(user_id: int,
+                      _: None = __import__("fastapi").Depends(require_admin)):
+    with db() as conn:
+        user = conn.execute("SELECT id,username,created_at FROM users WHERE id=?", (user_id,)).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        balances = conn.execute(
+            "SELECT asset_code,COALESCE(SUM(amount),0) balance FROM wallet_ledger WHERE user_id=? GROUP BY asset_code",
+            (user_id,)).fetchall()
+        names = conn.execute("SELECT username,created_at FROM usernames WHERE owner_id=? ORDER BY id", (user_id,)).fetchall()
+        numbers = conn.execute("SELECT id,phone_e164,status,created_at FROM phone_numbers WHERE owner_id=? ORDER BY id", (user_id,)).fetchall()
+        items = conn.execute("""SELECT id,title,description,metadata_json,chain,created_at
+            FROM collectibles WHERE owner_id=? ORDER BY id DESC""", (user_id,)).fetchall()
+    return {
+        "user": dict(user),
+        "balances": {row["asset_code"]: row["balance"] for row in balances},
+        "usernames": [dict(row) for row in names],
+        "phone_numbers": [dict(row) for row in numbers],
+        "collectibles": [{**dict(row), "metadata": json.loads(row["metadata_json"])} for row in items],
+    }
+
 @app.get("/v1/assets/me")
 def my_assets(user_id: int = __import__("fastapi").Depends(current_user)):
     with db() as conn:
