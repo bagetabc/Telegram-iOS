@@ -13,6 +13,10 @@ on:
       - ".github/workflows/deartg-ios.yml"
   workflow_dispatch:
 
+concurrency:
+  group: deartg-ios-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
