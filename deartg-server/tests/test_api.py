@@ -144,3 +144,24 @@ def test_admin_api_rejects_unknown_users_and_duplicate_inventory(client):
     duplicate = client.post("/v1/admin/numbers", headers=admin,
                             json={"phone_e164": "+15557654321"})
     assert duplicate.status_code == 409
+
+
+def test_admin_bot_user_directory_and_asset_lookup(client):
+    token, user = register(client, "botmanaged")
+    headers = {"Authorization": f"Bearer {token}"}
+    admin = {"X-Admin-Token": "test-admin-secret"}
+    client.post(f"/v1/admin/users/{user['id']}/stars", headers=admin,
+                json={"amount": 75, "reason": "bot test"})
+
+    listing = client.get("/v1/admin/users", headers=admin)
+    assert listing.status_code == 200
+    assert listing.json()["total"] == 1
+    assert listing.json()["items"][0]["stars"] == 75
+
+    assets = client.get(f"/v1/admin/users/{user['id']}/assets", headers=admin)
+    assert assets.status_code == 200
+    assert assets.json()["user"]["username"] == "botmanaged"
+    assert assets.json()["balances"]["DEARTG_STARS"] == 75
+
+    missing = client.get("/v1/admin/users/999/assets", headers=admin)
+    assert missing.status_code == 404
