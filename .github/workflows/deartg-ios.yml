@@ -38,7 +38,8 @@ jobs:
       - name: Report selected Xcode version
         run: xcodebuild -version
       - name: Confirm DearTG sources are present
-        run: test -f Sources/API.swift && test -f Sources/RootView.swift && test -f Info.plist
+        working-directory: DearTG-iOS
+        run: test -f Sources/API.swift && test -f Sources/RootView.swift && test -f Info.plist && test -f project.yml
       - name: Build iOS Simulator app
         working-directory: DearTG-iOS
         run: |
