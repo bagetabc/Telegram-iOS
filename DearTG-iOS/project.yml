@@ -8,9 +8,8 @@ settings:
     SWIFT_VERSION: "5.0"
     PRODUCT_BUNDLE_IDENTIFIER: com.deartg.app
     INFOPLIST_KEY_CFBundleDisplayName: DearTG
-    INFOPLIST_KEY_NSLocalNetworkUsageDescription: DearTG connects to your local server on the same Wi-Fi network.
-    INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
-    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_FILE: Info.plist
+    GENERATE_INFOPLIST_FILE: NO
 targets:
   DearTG:
     type: application

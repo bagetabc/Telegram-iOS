@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 struct User: Codable, Identifiable {
     let id: Int
