@@ -41,3 +41,4 @@ Admin routes require the `X-Admin-Token` header and the server-side `DEARTG_ADMI
 SQLite is used for the local prototype. Passwords are PBKDF2-HMAC-SHA256 hashed; bearer tokens are HMAC-signed and expire. Set unique random values for both secrets before use. Do not expose this prototype to the public internet yet: production still needs TLS, refresh/revocation, rate limits, account recovery, moderation, backups, migrations, push notifications, and a reviewed end-to-end encryption design.
 
 The backend is independent of Telegram servers. The upstream iOS repository still contains Telegram source code; this backend alone does not replace its MTProto/account/chat stack.
+\nThe companion Python Telegram admin bot is in `../deartg-bot`; follow its README after starting this API.\n
