@@ -199,6 +199,23 @@ def list_chats(user_id: int = __import__("fastapi").Depends(current_user)):
     return [dict(row) for row in rows]
 
 
+@app.post("/v1/chats/{chat_id}/members", status_code=201)
+def add_chat_member(chat_id: int, username: str = __import__("fastapi").Query(min_length=3, max_length=32),
+                   user_id: int = __import__("fastapi").Depends(current_user)):
+    with db() as conn:
+        require_member(conn, chat_id, user_id)
+        target = conn.execute("SELECT id,username FROM users WHERE username=?",
+                              (username,)).fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        try:
+            conn.execute("INSERT INTO members(chat_id,user_id) VALUES(?,?)",
+                         (chat_id, target["id"]))
+        except sqlite3.IntegrityError:
+            pass
+    return {"chat_id": chat_id, "user": {"id": target["id"], "username": target["username"]}}
+
+
 @app.get("/v1/chats/{chat_id}/messages")
 def list_messages(chat_id: int, before_id: int | None = None,
                   user_id: int = __import__("fastapi").Depends(current_user)):
