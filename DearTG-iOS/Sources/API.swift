@@ -119,7 +119,7 @@ final class DearTGSession: ObservableObject {
         do {
             let _: Chat = try await request("/v1/chats", method: "POST", body: ChatPayload(title: title))
             await loadChats()
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 
     func invite(username: String, to chat: Chat) async throws {
