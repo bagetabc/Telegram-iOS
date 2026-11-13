@@ -34,7 +34,7 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q app.py tests
       - name: Run API integration tests
-        run: pytest -q
+        run: PYTHONPATH=. pytest -q
       - name: Verify API imports and route registration
         run: |
           python - <<'PY'
