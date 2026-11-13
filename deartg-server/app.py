@@ -66,6 +66,41 @@ def init_db():
           created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, id);
+        CREATE TABLE IF NOT EXISTS wallet_ledger (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          asset_code TEXT NOT NULL,
+          amount INTEGER NOT NULL,
+          reason TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_ledger(user_id, asset_code, id);
+        CREATE TABLE IF NOT EXISTS usernames (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS phone_numbers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          phone_e164 TEXT NOT NULL UNIQUE,
+          owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          status TEXT NOT NULL DEFAULT 'available',
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS collectibles (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          chain TEXT NOT NULL DEFAULT 'offchain',
+          contract_address TEXT,
+          token_id TEXT,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_collectibles_owner ON collectibles(owner_id, id);
+
         """)
 
 
@@ -138,6 +173,33 @@ def require_member(conn, chat_id: int, user_id: int):
         raise HTTPException(status_code=404, detail="Chat not found")
 
 
+class StarsIssue(BaseModel):
+    amount: int = Field(gt=0, le=1_000_000_000)
+    reason: str = Field(min_length=3, max_length=160)
+
+
+class UsernameIssue(BaseModel):
+    username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_]+$")
+
+
+class NumberAdd(BaseModel):
+    phone_e164: str = Field(min_length=8, max_length=16, pattern=r"^\+[1-9][0-9]{7,14}$")
+
+
+class CollectibleIssue(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=500)
+    metadata: dict = Field(default_factory=dict)
+
+
+def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
+    configured = os.getenv("DEARTG_ADMIN_TOKEN")
+    if not configured:
+        raise HTTPException(status_code=503, detail="Admin API is disabled: DEARTG_ADMIN_TOKEN is not configured")
+    if not x_admin_token or not hmac.compare_digest(x_admin_token, configured):
+        raise HTTPException(status_code=403, detail="Admin token is invalid")
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "service": "DearTG API", "version": "0.1.0"}
@@ -176,6 +238,94 @@ def me(user_id: int = __import__("fastapi").Depends(current_user)):
     if not row:
         raise HTTPException(status_code=401, detail="Account not found")
     return dict(row)
+
+
+@app.get("/v1/assets/me")
+def my_assets(user_id: int = __import__("fastapi").Depends(current_user)):
+    with db() as conn:
+        balances = conn.execute(
+            "SELECT asset_code,COALESCE(SUM(amount),0) balance FROM wallet_ledger WHERE user_id=? GROUP BY asset_code",
+            (user_id,)).fetchall()
+        names = conn.execute("SELECT username,created_at FROM usernames WHERE owner_id=? ORDER BY id", (user_id,)).fetchall()
+        numbers = conn.execute("SELECT phone_e164,status,created_at FROM phone_numbers WHERE owner_id=? ORDER BY id", (user_id,)).fetchall()
+        items = conn.execute("""SELECT id,title,description,metadata_json,chain,contract_address,token_id,created_at
+            FROM collectibles WHERE owner_id=? ORDER BY id DESC""", (user_id,)).fetchall()
+    return {
+        "balances": {row["asset_code"]: row["balance"] for row in balances},
+        "usernames": [dict(row) for row in names],
+        "phone_numbers": [dict(row) for row in numbers],
+        "collectibles": [{**dict(row), "metadata": json.loads(row["metadata_json"])} for row in items],
+        "notice": "DearTG internal assets only; no TON blockchain transfer or Telegram Stars/NFT is implied."
+    }
+
+
+@app.post("/v1/admin/users/{user_id}/stars", status_code=201)
+def issue_deartg_stars(user_id: int, data: StarsIssue,
+                       _: None = __import__("fastapi").Depends(require_admin)):
+    now = int(time.time())
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute("INSERT INTO wallet_ledger(user_id,asset_code,amount,reason,created_at) VALUES(?,?,?,?,?)",
+                     (user_id, "DEARTG_STARS", data.amount, data.reason, now))
+        balance = conn.execute("SELECT COALESCE(SUM(amount),0) FROM wallet_ledger WHERE user_id=? AND asset_code='DEARTG_STARS'",
+                               (user_id,)).fetchone()[0]
+    return {"user_id": user_id, "asset": "DEARTG_STARS", "issued": data.amount, "balance": balance}
+
+
+@app.post("/v1/admin/users/{user_id}/usernames", status_code=201)
+def issue_username(user_id: int, data: UsernameIssue,
+                   _: None = __import__("fastapi").Depends(require_admin)):
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        try:
+            conn.execute("INSERT INTO usernames(username,owner_id,created_at) VALUES(?,?,?)",
+                         (data.username, user_id, int(time.time())))
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=409, detail="Username is already assigned")
+    return {"user_id": user_id, "username": data.username}
+
+
+@app.post("/v1/admin/numbers", status_code=201)
+def add_phone_number(data: NumberAdd,
+                     _: None = __import__("fastapi").Depends(require_admin)):
+    with db() as conn:
+        try:
+            cur = conn.execute("INSERT INTO phone_numbers(phone_e164,created_at) VALUES(?,?)",
+                               (data.phone_e164, int(time.time())))
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=409, detail="Number already exists")
+    return {"id": cur.lastrowid, "phone_e164": data.phone_e164, "status": "available"}
+
+
+@app.post("/v1/admin/users/{user_id}/numbers/{number_id}/assign")
+def assign_phone_number(user_id: int, number_id: int,
+                        _: None = __import__("fastapi").Depends(require_admin)):
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        cur = conn.execute("UPDATE phone_numbers SET owner_id=?,status='assigned' WHERE id=? AND status='available'",
+                           (user_id, number_id))
+        if cur.rowcount != 1:
+            raise HTTPException(status_code=409, detail="Number is unavailable")
+        row = conn.execute("SELECT phone_e164 FROM phone_numbers WHERE id=?", (number_id,)).fetchone()
+    return {"user_id": user_id, "phone_e164": row["phone_e164"], "status": "assigned"}
+
+
+@app.post("/v1/admin/users/{user_id}/collectibles", status_code=201)
+def issue_collectible(user_id: int, data: CollectibleIssue,
+                      _: None = __import__("fastapi").Depends(require_admin)):
+    now = int(time.time())
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        cur = conn.execute("""INSERT INTO collectibles(owner_id,title,description,metadata_json,created_at)
+            VALUES(?,?,?,?,?)""",
+            (user_id, data.title, data.description, json.dumps(data.metadata, ensure_ascii=False), now))
+        item_id = cur.lastrowid
+    return {"id": item_id, "user_id": user_id, "title": data.title, "chain": "offchain",
+            "notice": "Off-chain DearTG collectible record; not an on-chain NFT."}
 
 
 @app.post("/v1/chats", status_code=201)
