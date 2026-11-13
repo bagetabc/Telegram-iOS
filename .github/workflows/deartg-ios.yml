@@ -1,4 +1,5 @@
 name: DearTG iOS simulator build
+# Builds the native DearTG app target, not the upstream Telegram target
 
 on:
   push:
