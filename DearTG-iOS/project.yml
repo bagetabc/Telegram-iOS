@@ -7,7 +7,6 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     PRODUCT_BUNDLE_IDENTIFIER: com.deartg.app
-    INFOPLIST_KEY_CFBundleDisplayName: DearTG
     INFOPLIST_FILE: Info.plist
     GENERATE_INFOPLIST_FILE: NO
 targets:
@@ -19,4 +18,3 @@ targets:
     settings:
       base:
         TARGETED_DEVICE_FAMILY: "1,2"
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES

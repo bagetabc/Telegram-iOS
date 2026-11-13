@@ -57,8 +57,8 @@ final class DearTGSession: ObservableObject {
     }
 
     init() {
-        self.serverURL = defaults.string(forKey: "deartg.serverURL") ?? "http://192.168.1.100:8080"
-        self.token = defaults.string(forKey: "deartg.token")
+        self.serverURL = UserDefaults.standard.string(forKey: "deartg.serverURL") ?? "http://192.168.1.100:8080"
+        self.token = UserDefaults.standard.string(forKey: "deartg.token")
         if token != nil {
             Task { await loadMeAndChats() }
         }
@@ -72,12 +72,12 @@ final class DearTGSession: ObservableObject {
         }
         if !query.isEmpty { components.queryItems = query }
         guard let url = components.url else { throw APIError.invalidResponse }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        if let body { request.httpBody = try encoder.encode(AnyEncodable(body)) }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = method
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token { urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let body { urlRequest.httpBody = try encoder.encode(AnyEncodable(body)) }
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -92,8 +92,7 @@ final class DearTGSession: ObservableObject {
         defer { isBusy = false }
         do {
             let result: AuthResult = try await request(register ? "/v1/auth/register" : "/v1/auth/login",
-                                                        method: "POST",
-                                                        body: Credentials(username: username, password: password))
+                method: "POST", body: Credentials(username: username, password: password))
             token = result.accessToken
             user = result.user
             defaults.set(result.accessToken, forKey: "deartg.token")
@@ -103,8 +102,7 @@ final class DearTGSession: ObservableObject {
 
     func loadMeAndChats() async {
         do {
-            let me: User = try await request("/v1/me")
-            user = me
+            user = try await request("/v1/me")
             await loadChats()
         } catch {
             logout()
@@ -135,7 +133,7 @@ final class DearTGSession: ObservableObject {
 
     func send(_ text: String, to chat: Chat) async throws {
         let _: Message = try await request("/v1/chats/\(chat.id)/messages", method: "POST",
-                                           body: MessagePayload(body: text))
+            body: MessagePayload(body: text))
     }
 
     func logout() {
