@@ -11,6 +11,7 @@ import app as api
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "DB_PATH", tmp_path / "test.sqlite3")
+    monkeypatch.setenv("DEARTG_ADMIN_TOKEN", "test-admin-secret")
     with TestClient(api.app) as test_client:
         yield test_client
 
@@ -90,3 +91,56 @@ def test_chat_membership_is_enforced(client):
         json={"body": "not allowed"},
     )
     assert response.status_code == 404
+
+
+def test_admin_asset_issuance_and_user_asset_listing(client):
+    token, user = register(client, "assetuser")
+    headers = {"Authorization": f"Bearer {token}"}
+    admin = {"X-Admin-Token": "test-admin-secret"}
+
+    denied = client.post(f"/v1/admin/users/{user['id']}/stars",
+                         json={"amount": 100, "reason": "welcome bonus"})
+    assert denied.status_code == 403
+
+    stars = client.post(f"/v1/admin/users/{user['id']}/stars", headers=admin,
+                        json={"amount": 100, "reason": "welcome bonus"})
+    assert stars.status_code == 201
+    assert stars.json()["balance"] == 100
+
+    username = client.post(f"/v1/admin/users/{user['id']}/usernames", headers=admin,
+                           json={"username": "assetuser_pro"})
+    assert username.status_code == 201
+
+    number = client.post("/v1/admin/numbers", headers=admin,
+                         json={"phone_e164": "+15551234567"})
+    assert number.status_code == 201
+    assigned = client.post(
+        f"/v1/admin/users/{user['id']}/numbers/{number.json()['id']}/assign",
+        headers=admin)
+    assert assigned.status_code == 200
+
+    collectible = client.post(f"/v1/admin/users/{user['id']}/collectibles", headers=admin,
+                              json={"title": "Founders badge", "metadata": {"level": 1}})
+    assert collectible.status_code == 201
+    assert collectible.json()["chain"] == "offchain"
+
+    assets = client.get("/v1/assets/me", headers=headers)
+    assert assets.status_code == 200
+    payload = assets.json()
+    assert payload["balances"]["DEARTG_STARS"] == 100
+    assert payload["usernames"][0]["username"] == "assetuser_pro"
+    assert payload["phone_numbers"][0]["phone_e164"] == "+15551234567"
+    assert payload["collectibles"][0]["metadata"] == {"level": 1}
+
+
+def test_admin_api_rejects_unknown_users_and_duplicate_inventory(client):
+    admin = {"X-Admin-Token": "test-admin-secret"}
+    missing = client.post("/v1/admin/users/999/stars", headers=admin,
+                          json={"amount": 5, "reason": "test issue"})
+    assert missing.status_code == 404
+    first = client.post("/v1/admin/numbers", headers=admin,
+                        json={"phone_e164": "+15557654321"})
+    assert first.status_code == 201
+    duplicate = client.post("/v1/admin/numbers", headers=admin,
+                            json={"phone_e164": "+15557654321"})
+    assert duplicate.status_code == 409
